@@ -1,0 +1,102 @@
+--create namespace kong
+kubectl apply -f kong-namespace.yaml
+#kubectl create namespace kong
+
+------------------------------------------
+--create config map from myheader folder where all custom plugin lua code is present
+#Please ensure that this is created in the same namespace as the one in which Kong is going to be installed. here namespace is kong
+kubectl create configmap nodejs-config --from-file=myheader -n kong
+
+--------------------------------------------
+--Deploy the Kubernetes Ingress Controller with kong 
+#kubectl create -f https://bit.ly/k4k8s
+kubectl apply -f kong-setup.yaml
+export PROXY_IP=$(minikube service -n kong kong-proxy --url | head -1)
+echo $PROXY_IP
+
+---------------------------------------------
+--deploy ingress-kong where we mentioned custom plugin name(myheader)
+#* Please note that if your plugin code involves database migration then you need to include the below patch to pod definition of your migration Job as well.
+kubectl apply -f ingress-kong.yaml
+
+--------------------------------------------------------
+--deploy nodejs microservice app
+kubectl apply -f nodejs-deployment.yaml
+
+kubectl apply -f nodejs-service.yaml
+
+kubectl apply -f nodejs-hpa.yaml
+
+kubectl get deploy,po,svc,hpa,configmap -n kong
+
+------------------------------------------------
+--Setup Ingress rules
+--Let’s expose these services outside the Kubernetes cluster by defining Ingress rules.
+
+echo '
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo
+  namespace: kong
+  annotations: 
+    konghq.com/strip-path: "true"
+    kubernetes.io/ingress.class: kong
+    konghq.com/plugins: my-custom-plugin
+spec:
+  rules:
+  - http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: nodejs
+            port: 
+             number: 3000		   
+' | kubectl apply -f -
+
+-------------------------------------------
+--Once you have setup Kong with the custom plugin installed, you can use it like any other plugin.
+--First, create a KongPlugin custom resource(here plugin name mentioned as myheader ):
+echo "
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: my-custom-plugin
+  namespace: kong  
+config:
+  header_value: "Auth"
+  generator: "uuid"
+  check: 
+    body: ["TenantId","name"]
+plugin: myheader
+" | kubectl apply -f -
+
+#pass any one of generator value for traceid stamping ["uuid", "uuid#counter", "tracker"] in above KongPlugin
+
+#kubectl patch ingress demo -n kong -p '{"metadata":{"annotations":{"konghq.com/plugins": "my-custom-plugin"}}}'
+
+
+
+
+
+
+
+
+----------------------------------------------------
+--for autoscaling
+kubectl run -i --tty load-generator --rm --image=busybox --restart=Never -- /bin/sh -c "while sleep 0.01; do wget -q -O- http://HOST:PORT; done"
+
+curl -i $PROXY_IP/insert
+
+--valid request
+curl -X POST -H "Auth: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJUZW5hbnRJZCI6MSwiT01TSWQiOjEsInVzZXJuYW1lIjoiQXNob2siLCJpYXQiOjE1MTYyMzkwMjJ9.EHqyqASHMq0IbGPUdI9s5jTsy1mKS_LhROI0d9aIawU" -H "Content-Type: application/json" -d '{"TenantId" : 1 , "OMSId" : 1 , "name": "linuxize", "email": "linuxize@example.com"}' $PROXY_IP/home
+
+--no username
+curl -X POST -H "Auth: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJUZW5hbnRJZCI6MSwiT01TSWQiOjF9.xL7gyzxXLOR1zHDToMs4CRAq92U107oMC91nF8BqT0Q" -H "Content-Type: application/json" -d '{"TenantId" : 1 , "OMSId" : 1 , "name": "linuxize", "email": "linuxize@example.com"}' $PROXY_IP/home
+
+--invalid key
+curl -X POST -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJUZW5hbnRJZCI6MSwiT01TSWQiOjF9.734P6TcrCEEPyibS-POhMuBTd2Q-k5sIXvuBPXLqVyg" -H "Content-Type: application/json" -d '{"TenantId" : 1 , "OMSId" : 1 , "name": "linuxize", "email": "linuxize@example.com"}' $PROXY_IP/home
+
+

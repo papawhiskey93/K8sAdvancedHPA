@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingress-kong
+  namespace: kong
+spec:
+  selector:
+    matchLabels:
+      app: ingress-kong
+  template:
+    metadata:
+      labels:
+        app: ingress-kong
+    spec:
+      containers:
+      - name: proxy
+        env:
+        - name: KONG_PLUGINS
+          value: bundled,myheader
+        - name: KONG_LUA_PACKAGE_PATH
+          value: "/opt/?.lua;;"
+        volumeMounts:
+        - name: kong-plugin-myheader
+          mountPath: /opt/kong/plugins/myheader
+      volumes:
+      - name: kong-plugin-myheader
+        configMap:
+          name: nodejs-config
+

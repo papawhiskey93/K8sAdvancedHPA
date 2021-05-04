@@ -1,0 +1,85 @@
+-----Example------------
+Let’s say we have an HPA configuration with a target CPU usage of 60%, a minimum pod count of 12 and a maximum pod count of 16.
+
+Current deployment status is: There are 14 total pods. 10 pods averaging %85 usage. 2 pods are failing. 2 pods are ready but not sending metrics 
+for a while.
+
+This is how calculations are different from the first example calculations:
+1. Formula is applied on all normal pods.
+desiredReplicas = ceil[10*(85/60)] = ceil(14.16) = 15 > 14
+
+2. It seems like a scaling up operation, so we can continue. If this calculation shows that no scaling is necessary, then we would stop here before
+calculating remaining pods in.
+
+3. Failed pods and not ready pods are always 0% of the desired value.
+Now average is [(10*85)+(2*0)]/12.
+
+4. Pods that have been ready but missing metrics are considered at desired usage for scaling up operations (Note that this is also 0% for scaling down operations).
+Now average is [(10*85)+(2*0)+(2*60)]/14 = 69.28
+desiredReplicas = ceil[14*(69.28/60)] = ceil(16.16) = 17 > 14
+
+5. Operation was scaling up, end result is still scaling up. Then scaling happens. If these calculations were reversing the scaling direction, 
+then operation would be aborted entirely.
+
+6. HPA still shows 85% average usage because scaling calculations after first calculation only affects scaling.
+
+7. Only 2 more pods are created since the maximum number of pods is 16.
+We saw how we can set scaling options with controller-manager flags. 
+SINCE KUBERNETES 1.18 AND V2BETA2 API WE ALSO HAVE A BEHAVIOR FIELD. 
+With the behavior field, we can configure all of these parameters on a per HPA object basis.
+
+
+Let’s examine the example about fields under behavior field:
+
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 120
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+
+-As we can see, the “selectPolicy“ field of scaleDown field is set to “Disabled”. This means that this HPA object will never lower the number
+ of running pods for a configured Deployment(or any other superset of the “Scale” object).
+ 
+-The “stabilizationWindowSeconds” field is set to 120 seconds. The counterpart of this could be set with this controller-manager flag:
+“--horizontal-pod-autoscaler-downscale-stabilization”. Setting in the “behavior” field overrides the flag value for the configured object.
+But scaling up has no delay. With this, we can actually set a cooldown period for scaling up operations. This could make your 
+application’s random spikes more stable for the infrastructure.
+
+-The “type” field can be both “Percent” or “Pods”. Percent means scale by percent of the current pods. Pods means scale by “x” amount 
+of pods. The “value" field is the numeric value of the type.
+
+-The “selectPolicy“ field of scaleUp field is set to “Max”. This means that maximum value between policies is applied.
+
+-Let’s have a quick example: We have 5 pods available and we need lots of pods. First let's calculate 10% of the 5 pods, the answer 
+is 0.5 but it will be rounded up to 1. Other option is straight up 2. Since selectPolicy is “Max” the deployment will be scaled by 2 pods. 
+Now we need to wait 60 seconds before any scaling up operations can happen because periodSeconds is set to 60.
+
+Now we have 7 pods and let’s say we still need to scale up by a large amount. 
+Let’s calculate 10% of the 7 pods, the answer is 0.7 and it will be rounded up to 1. Other option was static which is 2. 
+Since selectPolicy is “Max” we will scale by 2 pods this time.
+Now we have 9 pods
+
+after the load came down we need to do scaledown:
+here in scaledown selectpolicy is for min value out of percent and pod type policies.
+hence in every 120 sec 1 pod is terminated. since 1 is minimum value always.
+
+
+
+-----------------links----------------
+https://www.kloia.com/blog/advanced-hpa-in-kubernetes

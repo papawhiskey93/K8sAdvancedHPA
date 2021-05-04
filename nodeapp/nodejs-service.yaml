@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nodejs
+  name: nodejs
+  namespace: kong
+spec:
+  type: NodePort
+  ports:
+  - port: 3000
+    name: high
+    targetPort: 3000
+  selector:
+    app: nodejs

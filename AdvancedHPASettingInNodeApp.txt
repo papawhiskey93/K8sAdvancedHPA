@@ -1,0 +1,31 @@
+#--minikube addons
+minikube addons list
+minikube addons enable metrics-server
+minikube addons enable ingress
+minikube addons enable ingress-dns
+minikube addons enable dashboard 
+minikube addons list
+
+#kubectl apply -f kong-namespace.yaml
+kubectl create namespace kong
+kubectl create configmap nodejs-config --from-file=myheader -n kong
+
+kubectl create -f https://bit.ly/k4k8s
+#kubectl apply -f kong-setup.yaml
+export PROXY_IP=$(minikube service -n kong kong-proxy --url | head -1)
+echo $PROXY_IP
+
+kubectl apply -f ingress-kong.yaml
+
+kubectl apply -f nodejs-deployment.yaml
+
+kubectl apply -f nodejs-service.yaml
+
+kubectl apply -f nodejs-hpa.yaml
+
+kubectl get deploy,po,svc,hpa,configmap -n kong
+
+--for autoscaling
+kubectl run -i --tty load-generator --rm --image=busybox --restart=Never -- /bin/sh -c "while sleep 0.01; do wget -q -O- http://HOST:PORT; done"
+
+
